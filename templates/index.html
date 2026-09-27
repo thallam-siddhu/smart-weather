@@ -8,8 +8,15 @@
 
     <meta name="theme-color" content="#07111f">
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Siddhu Weather">
+    <meta name="application-name" content="Siddhu Weather">
 
-    <title>Smart Weather</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" type="image/png" sizes="64x64" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+
+    <title>Siddhu Weather</title>
 
     <link rel="stylesheet"
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -172,6 +179,81 @@
 
         .search-input-wrap {
             position: relative;
+            z-index: 50;
+        }
+
+        .suggestions {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: calc(100% + 7px);
+            display: none;
+            max-height: 330px;
+            overflow-y: auto;
+            padding: 6px;
+            border-radius: 16px;
+            background: rgba(8, 22, 38, 0.97);
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 18px 45px rgba(0,0,0,0.35);
+            backdrop-filter: blur(18px);
+            z-index: 100;
+        }
+
+        .suggestions.show {
+            display: block;
+        }
+
+        .suggestion-item {
+            width: 100%;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 11px 12px;
+            border: 0;
+            border-radius: 11px;
+            background: transparent;
+            color: #ffffff;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .suggestion-item:hover,
+        .suggestion-item.active {
+            background: rgba(56,189,248,0.12);
+        }
+
+        .suggestion-pin {
+            flex: 0 0 auto;
+            font-size: 16px;
+            line-height: 1.2;
+        }
+
+        .suggestion-main {
+            min-width: 0;
+        }
+
+        .suggestion-name {
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .suggestion-detail {
+            margin-top: 3px;
+            color: #8195ac;
+            font-size: 10px;
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .suggestion-loading,
+        .suggestion-empty {
+            padding: 13px 12px;
+            color: #8296ad;
+            font-size: 12px;
+            text-align: center;
         }
 
         .search-input {
@@ -623,6 +705,33 @@
            MAP
         ========================================================= */
 
+        .map-section {
+            display: block;
+        }
+
+        .map-section.hidden {
+            display: none;
+        }
+
+        .map-toggle-btn {
+            width: 100%;
+            min-height: 46px;
+            margin-bottom: 10px;
+            padding: 0 16px;
+            border: 1px solid rgba(56,189,248,0.20);
+            border-radius: 14px;
+            color: #cfefff;
+            background: rgba(56,189,248,0.09);
+            font-size: 13px;
+            font-weight: 700;
+            transition: 0.2s;
+        }
+
+        .map-toggle-btn:hover {
+            background: rgba(56,189,248,0.14);
+            transform: translateY(-1px);
+        }
+
         .map-card {
             padding: 14px;
 
@@ -892,6 +1001,15 @@
                 height: 48px;
                 border-radius: 14px;
                 font-size: 15px;
+            }
+
+            .suggestions {
+                max-height: 280px;
+                border-radius: 14px;
+            }
+
+            .suggestion-item {
+                padding: 10px;
             }
 
             .action-btn {
@@ -1201,10 +1319,20 @@
                 id="cityInput"
                 class="search-input"
                 type="text"
-                placeholder="Search city..."
+                placeholder="Search city, town or village..."
                 autocomplete="off"
                 enterkeyhint="search"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
             >
+
+            <div
+                id="suggestions"
+                class="suggestions"
+                role="listbox"
+                aria-label="Location suggestions"
+            ></div>
 
         </div>
 
@@ -1602,37 +1730,6 @@
 
 
     <!-- =====================================================
-         MAP
-    ====================================================== -->
-
-    <section class="section">
-
-        <div class="section-header">
-
-            <div class="section-title">
-                Location
-            </div>
-
-            <div class="section-subtitle">
-                Tap map to change
-            </div>
-
-        </div>
-
-        <div class="map-card">
-
-            <div id="map"></div>
-
-            <div class="map-help">
-                Tap anywhere on the map to check weather there
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- =====================================================
          7 DAY FORECAST
     ====================================================== -->
 
@@ -1657,6 +1754,53 @@
 
             <div class="empty-state">
                 Forecast will appear here
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- =====================================================
+         MAP SELECTOR
+    ====================================================== -->
+
+    <section class="section">
+
+        <button
+            id="mapToggleBtn"
+            class="map-toggle-btn"
+            type="button"
+            aria-expanded="false"
+        >
+            🗺️ Select using Map
+        </button>
+
+        <div
+            id="mapSection"
+            class="map-section hidden"
+        >
+
+            <div class="section-header">
+
+                <div class="section-title">
+                    Select Location
+                </div>
+
+                <div class="section-subtitle">
+                    Tap map to change
+                </div>
+
+            </div>
+
+            <div class="map-card">
+
+                <div id="map"></div>
+
+                <div class="map-help">
+                    Tap anywhere on the map to check weather there
+                </div>
+
             </div>
 
         </div>
@@ -2654,6 +2798,80 @@
                 );
             }
         );
+
+        setTimeout(
+            function() {
+                map.invalidateSize();
+            },
+            100
+        );
+    }
+
+
+    function toggleMap() {
+
+        const section =
+            $("mapSection");
+
+        const button =
+            $("mapToggleBtn");
+
+        const opening =
+            section.classList.contains("hidden");
+
+        if (opening) {
+
+            section.classList.remove(
+                "hidden"
+            );
+
+            button.textContent =
+                "✕ Hide Map";
+
+            button.setAttribute(
+                "aria-expanded",
+                "true"
+            );
+
+            initializeMap();
+
+            setTimeout(
+                function() {
+
+                    if (map) {
+
+                        map.invalidateSize();
+
+                        if (
+                            Number.isFinite(currentLat) &&
+                            Number.isFinite(currentLon)
+                        ) {
+
+                            updateMap(
+                                currentLat,
+                                currentLon,
+                                "Current location"
+                            );
+                        }
+                    }
+                },
+                120
+            );
+
+        } else {
+
+            section.classList.add(
+                "hidden"
+            );
+
+            button.textContent =
+                "🗺️ Select using Map";
+
+            button.setAttribute(
+                "aria-expanded",
+                "false"
+            );
+        }
     }
 
 
@@ -2664,7 +2882,7 @@
     function updateMap(lat, lon, label = "Selected location") {
 
         if (!map) {
-            initializeMap();
+            return;
         }
 
         const position =
@@ -3053,6 +3271,458 @@
 
 
     /* =========================================================
+       LIVE LOCATION SUGGESTIONS
+       Suggestions update while the user types.
+    ========================================================= */
+
+    let suggestionTimer = null;
+    let suggestionController = null;
+    let suggestionResults = [];
+    let activeSuggestionIndex = -1;
+
+
+    function hideSuggestions() {
+
+        const box =
+            $("suggestions");
+
+        box.classList.remove(
+            "show"
+        );
+
+        box.innerHTML = "";
+
+        $("cityInput").setAttribute(
+            "aria-expanded",
+            "false"
+        );
+
+        suggestionResults = [];
+        activeSuggestionIndex = -1;
+    }
+
+
+    function showSuggestionMessage(
+        message,
+        loading = false
+    ) {
+
+        const box =
+            $("suggestions");
+
+        box.innerHTML =
+            `<div class="${loading ? "suggestion-loading" : "suggestion-empty"}">
+                ${message}
+             </div>`;
+
+        box.classList.add(
+            "show"
+        );
+
+        $("cityInput").setAttribute(
+            "aria-expanded",
+            "true"
+        );
+    }
+
+
+    function renderSuggestions(
+        results
+    ) {
+
+        const box =
+            $("suggestions");
+
+        box.innerHTML = "";
+
+        suggestionResults =
+            results || [];
+
+        activeSuggestionIndex = -1;
+
+        if (!suggestionResults.length) {
+
+            showSuggestionMessage(
+                "No matching places found"
+            );
+
+            return;
+        }
+
+        suggestionResults.forEach(
+            function(result, index) {
+
+                const item =
+                    document.createElement(
+                        "button"
+                    );
+
+                item.type =
+                    "button";
+
+                item.className =
+                    "suggestion-item";
+
+                item.setAttribute(
+                    "role",
+                    "option"
+                );
+
+                const display =
+                    result.display_name ||
+                    "Selected location";
+
+                const parts =
+                    display.split(",");
+
+                const name =
+                    parts[0].trim();
+
+                const detail =
+                    parts.slice(1, 4)
+                        .join(", ")
+                        .trim();
+
+                const type =
+                    result.type
+                        ? result.type.replaceAll("_", " ")
+                        : "place";
+
+                item.innerHTML = `
+                    <span class="suggestion-pin">📍</span>
+                    <span class="suggestion-main">
+                        <span class="suggestion-name">
+                            ${escapeHtml(name)}
+                        </span>
+                        <span class="suggestion-detail">
+                            ${escapeHtml(detail || type)}
+                        </span>
+                    </span>
+                `;
+
+                item.addEventListener(
+                    "mousedown",
+                    function(event) {
+                        event.preventDefault();
+                    }
+                );
+
+                item.addEventListener(
+                    "click",
+                    function() {
+
+                        selectSuggestion(
+                            result
+                        );
+                    }
+                );
+
+                box.appendChild(
+                    item
+                );
+            }
+        );
+
+        box.classList.add(
+            "show"
+        );
+
+        $("cityInput").setAttribute(
+            "aria-expanded",
+            "true"
+        );
+    }
+
+
+    function escapeHtml(
+        value
+    ) {
+
+        return String(value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+
+    async function selectSuggestion(
+        result
+    ) {
+
+        const input =
+            $("cityInput");
+
+        const display =
+            result.display_name ||
+            "";
+
+        input.value =
+            display.split(",")[0].trim();
+
+        hideSuggestions();
+
+        const lat =
+            Number(result.lat);
+
+        const lon =
+            Number(result.lon);
+
+        if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon)
+        ) {
+
+            setStatus(
+                "Selected location has invalid coordinates.",
+                "error"
+            );
+
+            return;
+        }
+
+        showLoading(
+            "Loading selected location..."
+        );
+
+        setStatus(
+            "Loading weather for selected location...",
+            "loading"
+        );
+
+        try {
+
+            await loadWeatherAtCoordinates(
+                lat,
+                lon,
+                "Searched location"
+            );
+
+            $("locationName").textContent =
+                `📍 ${display.split(",")[0].trim() || "Selected Location"}`;
+
+            $("locationSubtitle").textContent =
+                display;
+
+        } catch (error) {
+
+            console.error(
+                "Suggestion selection error:",
+                error
+            );
+
+            hideLoading();
+
+            setStatus(
+                "Unable to load the selected location.",
+                "error"
+            );
+        }
+    }
+
+
+    async function fetchLocationSuggestions(
+        query
+    ) {
+
+        if (
+            suggestionController
+        ) {
+
+            suggestionController.abort();
+        }
+
+        suggestionController =
+            new AbortController();
+
+        const url =
+            "https://nominatim.openstreetmap.org/search" +
+            `?format=jsonv2` +
+            `&limit=7` +
+            `&addressdetails=1` +
+            `&dedupe=1` +
+            `&accept-language=en` +
+            `&q=${encodeURIComponent(query)}`;
+
+        try {
+
+            const response =
+                await fetch(
+                    url,
+                    {
+                        method: "GET",
+                        headers: {
+                            "Accept":
+                                "application/json"
+                        },
+                        signal:
+                            suggestionController.signal
+                    }
+                );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Suggestion server error: ${response.status}`
+                );
+            }
+
+            const results =
+                await response.json();
+
+            if (
+                $("cityInput").value.trim() !==
+                query
+            ) {
+                return;
+            }
+
+            renderSuggestions(
+                Array.isArray(results)
+                    ? results
+                    : []
+            );
+
+        } catch (error) {
+
+            if (
+                error.name ===
+                "AbortError"
+            ) {
+                return;
+            }
+
+            console.warn(
+                "Location suggestions failed:",
+                error
+            );
+
+            showSuggestionMessage(
+                "Suggestions temporarily unavailable"
+            );
+        }
+    }
+
+
+    function handleSearchInput() {
+
+        const query =
+            $("cityInput").value.trim();
+
+        if (
+            suggestionTimer
+        ) {
+            clearTimeout(
+                suggestionTimer
+            );
+        }
+
+        if (!query) {
+
+            if (
+                suggestionController
+            ) {
+                suggestionController.abort();
+            }
+
+            hideSuggestions();
+
+            return;
+        }
+
+        showSuggestionMessage(
+            "Finding matching places...",
+            true
+        );
+
+        /* 
+           A short debounce prevents one network request
+           for every rapid keystroke while still updating
+           suggestions as the text changes.
+        */
+        suggestionTimer =
+            setTimeout(
+                function() {
+
+                    fetchLocationSuggestions(
+                        query
+                    );
+
+                },
+                250
+            );
+    }
+
+
+    function moveSuggestion(
+        direction
+    ) {
+
+        if (
+            !suggestionResults.length
+        ) {
+            return;
+        }
+
+        activeSuggestionIndex +=
+            direction;
+
+        if (
+            activeSuggestionIndex < 0
+        ) {
+            activeSuggestionIndex =
+                suggestionResults.length - 1;
+        }
+
+        if (
+            activeSuggestionIndex >=
+            suggestionResults.length
+        ) {
+            activeSuggestionIndex = 0;
+        }
+
+        const items =
+            $("suggestions")
+                .querySelectorAll(
+                    ".suggestion-item"
+                );
+
+        items.forEach(
+            function(item, index) {
+
+                item.classList.toggle(
+                    "active",
+                    index ===
+                    activeSuggestionIndex
+                );
+            }
+        );
+    }
+
+
+    function selectActiveSuggestion() {
+
+        if (
+            activeSuggestionIndex >= 0 &&
+            suggestionResults[
+                activeSuggestionIndex
+            ]
+        ) {
+
+            selectSuggestion(
+                suggestionResults[
+                    activeSuggestionIndex
+                ]
+            );
+
+            return true;
+        }
+
+        return false;
+    }
+
+
+    /* =========================================================
        CITY SEARCH
     ========================================================= */
 
@@ -3090,7 +3760,7 @@
         try {
 
             const url =
-                `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(city)}`;
+                `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=7&addressdetails=1&dedupe=1&q=${encodeURIComponent(city)}`;
 
 
             const response =
@@ -3195,8 +3865,45 @@
     ========================================================= */
 
     $("cityInput").addEventListener(
+        "input",
+        handleSearchInput
+    );
+
+
+    $("cityInput").addEventListener(
         "keydown",
         function(event) {
+
+            if (
+                event.key === "ArrowDown"
+            ) {
+
+                event.preventDefault();
+
+                moveSuggestion(1);
+
+                return;
+            }
+
+            if (
+                event.key === "ArrowUp"
+            ) {
+
+                event.preventDefault();
+
+                moveSuggestion(-1);
+
+                return;
+            }
+
+            if (
+                event.key === "Escape"
+            ) {
+
+                hideSuggestions();
+
+                return;
+            }
 
             if (
                 event.key === "Enter"
@@ -3204,8 +3911,41 @@
 
                 event.preventDefault();
 
-                searchCity();
+                if (
+                    !selectActiveSuggestion()
+                ) {
+
+                    searchCity();
+                }
             }
+        }
+    );
+
+
+    $("cityInput").addEventListener(
+        "focus",
+        function() {
+
+            if (
+                $("cityInput").value.trim()
+            ) {
+
+                handleSearchInput();
+            }
+        }
+    );
+
+
+    $("cityInput").addEventListener(
+        "blur",
+        function() {
+
+            setTimeout(
+                function() {
+                    hideSuggestions();
+                },
+                180
+            );
         }
     );
 
@@ -3226,15 +3966,44 @@
     );
 
 
+    $("mapToggleBtn").addEventListener(
+        "click",
+        toggleMap
+    );
+
+
     /* =========================================================
        START APP
     ========================================================= */
 
+    if (
+        "serviceWorker" in navigator
+    ) {
+
+        window.addEventListener(
+            "load",
+            function() {
+
+                navigator.serviceWorker
+                    .register(
+                        "/static/service-worker.js"
+                    )
+                    .catch(
+                        function(error) {
+                            console.warn(
+                                "Service worker registration failed:",
+                                error
+                            );
+                        }
+                    );
+            }
+        );
+    }
+
+
     window.addEventListener(
         "load",
         function() {
-
-            initializeMap();
 
             /*
                 Small delay gives the browser time to

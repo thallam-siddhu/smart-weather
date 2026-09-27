@@ -1,373 +1,497 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 import requests
-from datetime import datetime
+import time
+from datetime import datetime, timezone
+
 
 app = Flask(__name__)
 
 
-# ============================================================
-# APPLICATION SETTINGS
-# ============================================================
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
-WEATHER_API_URL = "https://api.open-meteo.com/v1/forecast"
-LOCATION_API_URL = "https://nominatim.openstreetmap.org/reverse"
-
-APP_USER_AGENT = (
-    "SmartWeather/2.0 "
-    "(real-time weather application)"
-)
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 
 
-# ============================================================
-# HOME PAGE
-# ============================================================
+# =========================================================
+# WEATHER CACHE
+# =========================================================
+
+# Simple in-memory cache.
+# This prevents repeated requests for the same location.
+weather_cache = {}
+
+# Cache weather data for 5 minutes.
+CACHE_SECONDS = 300
+
+
+# =========================================================
+# REQUEST HEADERS
+# =========================================================
+
+HEADERS = {
+    "User-Agent": (
+        "SiddhuWeather/1.0 "
+        "(https://thallam-siddhu.github.io/smart-weather/)"
+    )
+}
+
+
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
 
-# ============================================================
-# WEATHER CODE → REAL WEATHER CONDITION
-# ============================================================
+# =========================================================
+# PWA MANIFEST
+# =========================================================
 
-def weather_description(code):
+@app.route("/manifest.json")
+def manifest():
+    return jsonify({
+        "name": "Siddhu Weather",
+        "short_name": "Siddhu Weather",
+        "description": "Live weather information and location-based forecasts.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#07111f",
+        "theme_color": "#07111f",
+        "orientation": "portrait-primary",
+        "icons": [
+            {
+                "src": "/static/icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any maskable"
+            },
+            {
+                "src": "/static/icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            }
+        ]
+    })
 
-    weather_codes = {
 
-        0: {
-            "condition": "Clear Sky",
-            "icon": "☀️"
-        },
+# =========================================================
+# SERVICE WORKER
+# =========================================================
 
-        1: {
-            "condition": "Mainly Clear",
-            "icon": "🌤️"
-        },
+@app.route("/service-worker.js")
+def service_worker():
 
-        2: {
-            "condition": "Partly Cloudy",
-            "icon": "⛅"
-        },
+    service_worker_code = """
+const CACHE_NAME = "siddhu-weather-v2";
 
-        3: {
-            "condition": "Overcast",
-            "icon": "☁️"
-        },
+const APP_SHELL = [
+    "/",
+    "/manifest.json",
+    "/static/favicon.png",
+    "/static/icon-180.png",
+    "/static/icon-192.png",
+    "/static/icon-512.png"
+];
 
-        45: {
-            "condition": "Fog",
-            "icon": "🌫️"
-        },
 
-        48: {
-            "condition": "Depositing Rime Fog",
-            "icon": "🌫️"
-        },
+// ---------------------------------------------------------
+// INSTALL
+// ---------------------------------------------------------
 
-        51: {
-            "condition": "Light Drizzle",
-            "icon": "🌦️"
-        },
+self.addEventListener("install", event => {
 
-        53: {
-            "condition": "Moderate Drizzle",
-            "icon": "🌦️"
-        },
+    event.waitUntil(
 
-        55: {
-            "condition": "Heavy Drizzle",
-            "icon": "🌧️"
-        },
+        caches.open(CACHE_NAME)
 
-        56: {
-            "condition": "Light Freezing Drizzle",
-            "icon": "🌨️"
-        },
+            .then(cache => {
+                return cache.addAll(APP_SHELL);
+            })
 
-        57: {
-            "condition": "Heavy Freezing Drizzle",
-            "icon": "🌨️"
-        },
+            .then(() => {
+                return self.skipWaiting();
+            })
 
-        61: {
-            "condition": "Light Rain",
-            "icon": "🌦️"
-        },
+    );
 
-        63: {
-            "condition": "Moderate Rain",
-            "icon": "🌧️"
-        },
+});
 
-        65: {
-            "condition": "Heavy Rain",
-            "icon": "🌧️"
-        },
 
-        66: {
-            "condition": "Light Freezing Rain",
-            "icon": "🌨️"
-        },
+// ---------------------------------------------------------
+// ACTIVATE
+// ---------------------------------------------------------
 
-        67: {
-            "condition": "Heavy Freezing Rain",
-            "icon": "🌨️"
-        },
+self.addEventListener("activate", event => {
 
-        71: {
-            "condition": "Light Snow",
-            "icon": "🌨️"
-        },
+    event.waitUntil(
 
-        73: {
-            "condition": "Moderate Snow",
-            "icon": "❄️"
-        },
+        caches.keys()
 
-        75: {
-            "condition": "Heavy Snow",
-            "icon": "❄️"
-        },
+            .then(keys => {
 
-        77: {
-            "condition": "Snow Grains",
-            "icon": "❄️"
-        },
+                return Promise.all(
 
-        80: {
-            "condition": "Light Rain Showers",
-            "icon": "🌦️"
-        },
+                    keys
+                        .filter(key => key !== CACHE_NAME)
+                        .map(key => caches.delete(key))
 
-        81: {
-            "condition": "Moderate Rain Showers",
-            "icon": "🌧️"
-        },
+                );
 
-        82: {
-            "condition": "Heavy Rain Showers",
-            "icon": "⛈️"
-        },
+            })
 
-        85: {
-            "condition": "Light Snow Showers",
-            "icon": "🌨️"
-        },
+            .then(() => {
+                return self.clients.claim();
+            })
 
-        86: {
-            "condition": "Heavy Snow Showers",
-            "icon": "❄️"
-        },
+    );
 
-        95: {
-            "condition": "Thunderstorm",
-            "icon": "⛈️"
-        },
+});
 
-        96: {
-            "condition": "Thunderstorm with Hail",
-            "icon": "⛈️"
-        },
 
-        99: {
-            "condition": "Severe Thunderstorm with Hail",
-            "icon": "⛈️"
-        }
+// ---------------------------------------------------------
+// FETCH
+// ---------------------------------------------------------
 
+self.addEventListener("fetch", event => {
+
+    const request = event.request;
+
+    // Only handle GET requests.
+    if (request.method !== "GET") {
+        return;
     }
 
-    return weather_codes.get(
-        code,
-        {
-            "condition": "Unknown Weather",
-            "icon": "🌡️"
+    // Do not cache weather API responses.
+    if (
+        request.url.includes("/weather") ||
+        request.url.includes("/location")
+    ) {
+        return;
+    }
+
+    event.respondWith(
+
+        fetch(request)
+
+            .then(response => {
+
+                // Store successful response in cache.
+                if (response && response.status === 200) {
+
+                    const copy = response.clone();
+
+                    caches.open(CACHE_NAME)
+                        .then(cache => {
+                            cache.put(request, copy);
+                        });
+
+                }
+
+                return response;
+
+            })
+
+            .catch(() => {
+
+                return caches.match(request);
+
+            })
+
+    );
+
+});
+"""
+
+    return Response(
+        service_worker_code,
+        mimetype="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache"
         }
     )
 
 
-# ============================================================
-# WEATHER API
-# ============================================================
+# =========================================================
+# WEATHER
+# =========================================================
 
 @app.route("/weather")
 def weather():
 
-    latitude = request.args.get("lat")
-    longitude = request.args.get("lon")
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
 
-    # --------------------------------------------------------
-    # VALIDATE COORDINATES
-    # --------------------------------------------------------
+    # -----------------------------------------------------
+    # CHECK PARAMETERS
+    # -----------------------------------------------------
 
-    if not latitude or not longitude:
+    if not lat or not lon:
 
         return jsonify({
             "success": False,
             "error": "Latitude and longitude are required"
         }), 400
 
+
+    # -----------------------------------------------------
+    # CONVERT COORDINATES
+    # -----------------------------------------------------
+
     try:
 
-        latitude = float(latitude)
-        longitude = float(longitude)
+        lat = float(lat)
+        lon = float(lon)
 
     except ValueError:
 
         return jsonify({
             "success": False,
-            "error": "Invalid coordinates"
+            "error": "Invalid latitude or longitude"
         }), 400
 
 
-    # --------------------------------------------------------
-    # OPEN-METEO PARAMETERS
-    # --------------------------------------------------------
+    # -----------------------------------------------------
+    # VALIDATE COORDINATES
+    # -----------------------------------------------------
+
+    if not (-90 <= lat <= 90):
+
+        return jsonify({
+            "success": False,
+            "error": "Invalid latitude"
+        }), 400
+
+
+    if not (-180 <= lon <= 180):
+
+        return jsonify({
+            "success": False,
+            "error": "Invalid longitude"
+        }), 400
+
+
+    # -----------------------------------------------------
+    # CACHE KEY
+    # -----------------------------------------------------
+
+    # GPS can return many decimal places.
+    # Rounding prevents unnecessary API requests.
+    cache_key = (
+        round(lat, 3),
+        round(lon, 3)
+    )
+
+
+    # =====================================================
+    # CHECK CACHE
+    # =====================================================
+
+    cached = weather_cache.get(cache_key)
+
+    if cached:
+
+        age = time.time() - cached["timestamp"]
+
+        if age < CACHE_SECONDS:
+
+            print(
+                "Weather served from cache:",
+                cache_key
+            )
+
+            return jsonify(cached["data"])
+
+
+        # Remove expired cache.
+        weather_cache.pop(cache_key, None)
+
+
+    # =====================================================
+    # OPEN-METEO REQUEST
+    # =====================================================
 
     params = {
 
-        "latitude": latitude,
+        "latitude": lat,
 
-        "longitude": longitude,
+        "longitude": lon,
 
-        "current": ",".join([
 
-            "temperature_2m",
+        # -------------------------------------------------
+        # CURRENT WEATHER
+        # -------------------------------------------------
 
-            "relative_humidity_2m",
-
-            "apparent_temperature",
-
-            "is_day",
-
-            "precipitation",
-
-            "rain",
-
-            "showers",
-
-            "snowfall",
-
-            "weather_code",
-
-            "cloud_cover",
-
-            "pressure_msl",
-
-            "surface_pressure",
-
-            "wind_speed_10m",
-
-            "wind_direction_10m",
-
+        "current": (
+            "temperature_2m,"
+            "relative_humidity_2m,"
+            "apparent_temperature,"
+            "is_day,"
+            "precipitation,"
+            "rain,"
+            "showers,"
+            "snowfall,"
+            "weather_code,"
+            "cloud_cover,"
+            "pressure_msl,"
+            "surface_pressure,"
+            "wind_speed_10m,"
+            "wind_direction_10m,"
             "wind_gusts_10m"
+        ),
 
-        ]),
 
-        "hourly": ",".join([
+        # -------------------------------------------------
+        # HOURLY WEATHER
+        # -------------------------------------------------
 
-            "temperature_2m",
-
-            "relative_humidity_2m",
-
-            "apparent_temperature",
-
-            "precipitation_probability",
-
-            "precipitation",
-
-            "rain",
-
-            "weather_code",
-
-            "cloud_cover",
-
-            "wind_speed_10m",
-
+        "hourly": (
+            "temperature_2m,"
+            "relative_humidity_2m,"
+            "apparent_temperature,"
+            "precipitation_probability,"
+            "precipitation,"
+            "rain,"
+            "showers,"
+            "snowfall,"
+            "weather_code,"
+            "cloud_cover,"
+            "wind_speed_10m,"
             "uv_index"
+        ),
 
-        ]),
 
-        "daily": ",".join([
+        # -------------------------------------------------
+        # DAILY WEATHER
+        # -------------------------------------------------
 
-            "weather_code",
+        "daily": (
+            "weather_code,"
+            "temperature_2m_max,"
+            "temperature_2m_min,"
+            "apparent_temperature_max,"
+            "apparent_temperature_min,"
+            "precipitation_probability_max,"
+            "precipitation_sum,"
+            "rain_sum,"
+            "showers_sum,"
+            "snowfall_sum,"
+            "sunrise,"
+            "sunset,"
+            "uv_index_max"
+        ),
 
-            "temperature_2m_max",
-
-            "temperature_2m_min",
-
-            "apparent_temperature_max",
-
-            "apparent_temperature_min",
-
-            "sunrise",
-
-            "sunset",
-
-            "daylight_duration",
-
-            "sunshine_duration",
-
-            "uv_index_max",
-
-            "precipitation_sum",
-
-            "rain_sum",
-
-            "precipitation_probability_max",
-
-            "wind_speed_10m_max",
-
-            "wind_gusts_10m_max"
-
-        ]),
 
         "timezone": "auto",
 
         "forecast_days": 7
-
     }
 
 
-    # --------------------------------------------------------
-    # REQUEST WEATHER
-    # --------------------------------------------------------
+    # =====================================================
+    # SEND REQUEST
+    # =====================================================
 
     try:
 
         response = requests.get(
-
-            WEATHER_API_URL,
-
+            OPEN_METEO_URL,
             params=params,
-
+            headers=HEADERS,
             timeout=15
-
         )
+
+
+        print(
+            "Weather API status:",
+            response.status_code
+        )
+
+
+        # -------------------------------------------------
+        # RATE LIMIT
+        # -------------------------------------------------
+
+        if response.status_code == 429:
+
+            # Use old cache if available.
+            if cached:
+
+                print(
+                    "Open-Meteo rate limited. "
+                    "Using old cache."
+                )
+
+                return jsonify(
+                    cached["data"]
+                )
+
+
+            return jsonify({
+
+                "success": False,
+
+                "error": (
+                    "Weather service is temporarily busy. "
+                    "Please try again in a few minutes."
+                )
+
+            }), 503
+
+
+        # -------------------------------------------------
+        # OTHER API ERRORS
+        # -------------------------------------------------
 
         if response.status_code != 200:
 
             print(
-                "Weather API status:",
-                response.status_code
+                "Open-Meteo response:",
+                response.text[:500]
             )
 
             return jsonify({
 
                 "success": False,
 
-                "error":
+                "error": (
                     "Weather service is temporarily unavailable"
+                )
 
             }), 502
 
 
+        # -------------------------------------------------
+        # JSON RESPONSE
+        # -------------------------------------------------
+
         data = response.json()
 
 
-        # ----------------------------------------------------
+        if data.get("error"):
+
+            return jsonify({
+
+                "success": False,
+
+                "error": data.get(
+                    "reason",
+                    "Weather service returned an error"
+                )
+
+            }), 502
+
+
+        # =================================================
         # CURRENT WEATHER
-        # ----------------------------------------------------
+        # =================================================
 
         current = data.get(
             "current",
@@ -380,286 +504,314 @@ def weather():
         )
 
 
-        description = weather_description(
+        condition, icon = get_weather_condition(
             weather_code
         )
 
 
-        # ----------------------------------------------------
-        # ADD EASY-TO-USE CURRENT REPORT
-        # ----------------------------------------------------
+        # =================================================
+        # FINAL RESULT
+        # =================================================
 
-        current_report = {
+        result = {
 
-            "temperature":
-                current.get(
+            "success": True,
+
+
+            # -------------------------------------------------
+            # LOCATION
+            # -------------------------------------------------
+
+            "location": {
+
+                "latitude": data.get(
+                    "latitude"
+                ),
+
+                "longitude": data.get(
+                    "longitude"
+                ),
+
+                "timezone": data.get(
+                    "timezone"
+                ),
+
+                "timezone_abbreviation": data.get(
+                    "timezone_abbreviation"
+                ),
+
+                "elevation": data.get(
+                    "elevation"
+                )
+
+            },
+
+
+            # -------------------------------------------------
+            # UNITS
+            # -------------------------------------------------
+
+            "units": data.get(
+                "current_units",
+                {}
+            ),
+
+
+            # -------------------------------------------------
+            # CURRENT
+            # -------------------------------------------------
+
+            "current": {
+
+                "temperature": current.get(
                     "temperature_2m"
                 ),
 
-            "feels_like":
-                current.get(
+                "feels_like": current.get(
                     "apparent_temperature"
                 ),
 
-            "humidity":
-                current.get(
+                "humidity": current.get(
                     "relative_humidity_2m"
                 ),
 
-            "cloud_cover":
-                current.get(
+                "cloud_cover": current.get(
                     "cloud_cover"
                 ),
 
-            "precipitation":
-                current.get(
+                "precipitation": current.get(
                     "precipitation"
                 ),
 
-            "rain":
-                current.get(
+                "rain": current.get(
                     "rain"
                 ),
 
-            "showers":
-                current.get(
+                "showers": current.get(
                     "showers"
                 ),
 
-            "snowfall":
-                current.get(
+                "snowfall": current.get(
                     "snowfall"
                 ),
 
-            "pressure":
-                current.get(
+                "pressure": current.get(
                     "pressure_msl"
                 ),
 
-            "surface_pressure":
-                current.get(
+                "surface_pressure": current.get(
                     "surface_pressure"
                 ),
 
-            "wind_speed":
-                current.get(
+                "wind_speed": current.get(
                     "wind_speed_10m"
                 ),
 
-            "wind_direction":
-                current.get(
+                "wind_direction": current.get(
                     "wind_direction_10m"
                 ),
 
-            "wind_gusts":
-                current.get(
+                "wind_gusts": current.get(
                     "wind_gusts_10m"
                 ),
 
-            "is_day":
-                current.get(
+                "is_day": current.get(
                     "is_day"
                 ),
 
-            "weather_code":
-                weather_code,
+                "weather_code": weather_code,
 
-            "condition":
-                description["condition"],
+                "condition": condition,
 
-            "icon":
-                description["icon"]
+                "icon": icon
+
+            },
+
+
+            # -------------------------------------------------
+            # HOURLY
+            # -------------------------------------------------
+
+            "hourly": data.get(
+                "hourly",
+                {}
+            ),
+
+
+            # -------------------------------------------------
+            # DAILY
+            # -------------------------------------------------
+
+            "daily": data.get(
+                "daily",
+                {}
+            ),
+
+
+            # -------------------------------------------------
+            # UPDATED TIME
+            # -------------------------------------------------
+
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat()
 
         }
 
 
-        # ----------------------------------------------------
-        # FINAL RESPONSE
-        # ----------------------------------------------------
+        # =================================================
+        # SAVE TO CACHE
+        # =================================================
 
-        return jsonify({
+        weather_cache[cache_key] = {
 
-            "success": True,
+            "timestamp": time.time(),
 
-            "location": {
+            "data": result
 
-                "latitude":
-                    latitude,
-
-                "longitude":
-                    longitude,
-
-                "timezone":
-                    data.get(
-                        "timezone"
-                    ),
-
-                "timezone_abbreviation":
-                    data.get(
-                        "timezone_abbreviation"
-                    ),
-
-                "elevation":
-                    data.get(
-                        "elevation"
-                    )
-
-            },
-
-            "units": {
-
-                "temperature":
-                    "°C",
-
-                "wind_speed":
-                    "km/h",
-
-                "pressure":
-                    "hPa",
-
-                "precipitation":
-                    "mm"
-
-            },
-
-            "current":
-                current_report,
-
-            "hourly":
-                data.get(
-                    "hourly",
-                    {}
-                ),
-
-            "daily":
-                data.get(
-                    "daily",
-                    {}
-
-                ),
-
-            "updated_at":
-                current.get(
-                    "time"
-                )
-
-        })
+        }
 
 
-    except requests.RequestException as error:
+        return jsonify(result)
+
+
+    # =====================================================
+    # TIMEOUT
+    # =====================================================
+
+    except requests.exceptions.Timeout:
 
         print(
-            "Weather API error:",
-            error
+            "Open-Meteo request timed out"
         )
 
         return jsonify({
 
             "success": False,
 
-            "error":
+            "error": (
+                "Weather service took too long to respond"
+            )
+
+        }), 504
+
+
+    # =====================================================
+    # REQUEST ERROR
+    # =====================================================
+
+    except requests.exceptions.RequestException as e:
+
+        print(
+            "Weather request error:",
+            str(e)
+        )
+
+
+        # Use old cache if available.
+        if cached:
+
+            print(
+                "Using old cached weather data"
+            )
+
+            return jsonify(
+                cached["data"]
+            )
+
+
+        return jsonify({
+
+            "success": False,
+
+            "error": (
                 "Unable to connect to weather service"
+            )
 
-        }), 503
+        }), 502
 
 
-# ============================================================
-# REVERSE GEOCODING
-# ============================================================
+    # =====================================================
+    # UNKNOWN ERROR
+    # =====================================================
+
+    except Exception as e:
+
+        print(
+            "Unexpected weather error:",
+            str(e)
+        )
+
+        return jsonify({
+
+            "success": False,
+
+            "error": "Unable to load weather"
+
+        }), 500
+
+
+# =========================================================
+# REVERSE LOCATION
+# =========================================================
 
 @app.route("/location")
 def location():
 
-    latitude = request.args.get("lat")
-    longitude = request.args.get("lon")
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
 
 
-    # --------------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------------
+    # -----------------------------------------------------
+    # CHECK PARAMETERS
+    # -----------------------------------------------------
 
-    if not latitude or not longitude:
+    if not lat or not lon:
 
         return jsonify({
 
             "success": False,
 
-            "error":
-                "Coordinates not provided"
+            "error": (
+                "Latitude and longitude are required"
+            )
 
         }), 400
 
 
     try:
 
-        latitude = float(latitude)
-        longitude = float(longitude)
+        params = {
 
-    except ValueError:
+            "lat": lat,
 
-        return jsonify({
+            "lon": lon,
 
-            "success": False,
+            "format": "jsonv2",
 
-            "error":
-                "Invalid coordinates"
+            "zoom": 18,
 
-        }), 400
+            "addressdetails": 1
 
+        }
 
-    # --------------------------------------------------------
-    # NOMINATIM PARAMETERS
-    # --------------------------------------------------------
-
-    params = {
-
-        "lat":
-            latitude,
-
-        "lon":
-            longitude,
-
-        "format":
-            "json",
-
-        "zoom":
-            18,
-
-        "addressdetails":
-            1,
-
-        "accept-language":
-            "en"
-
-    }
-
-
-    headers = {
-
-        "User-Agent":
-            APP_USER_AGENT
-
-    }
-
-
-    # --------------------------------------------------------
-    # REQUEST LOCATION
-    # --------------------------------------------------------
-
-    try:
 
         response = requests.get(
 
-            LOCATION_API_URL,
+            NOMINATIM_URL,
 
             params=params,
 
-            headers=headers,
+            headers=HEADERS,
 
-            timeout=15
+            timeout=10
 
         )
 
+
+        # -------------------------------------------------
+        # LOCATION API ERROR
+        # -------------------------------------------------
 
         if response.status_code != 200:
 
@@ -667,8 +819,9 @@ def location():
 
                 "success": False,
 
-                "error":
+                "error": (
                     "Location service unavailable"
+                )
 
             }), 502
 
@@ -682,47 +835,9 @@ def location():
         )
 
 
-        # ----------------------------------------------------
-        # ROAD
-        # ----------------------------------------------------
-
-        road = (
-
-            address.get("road")
-
-            or address.get("pedestrian")
-
-            or address.get("residential")
-
-            or address.get("footway")
-
-            or ""
-
-        )
-
-
-        # ----------------------------------------------------
-        # LOCAL AREA
-        # ----------------------------------------------------
-
-        locality = (
-
-            address.get("neighbourhood")
-
-            or address.get("suburb")
-
-            or address.get("quarter")
-
-            or address.get("village")
-
-            or ""
-
-        )
-
-
-        # ----------------------------------------------------
-        # CITY
-        # ----------------------------------------------------
+        # -------------------------------------------------
+        # FIND CITY
+        # -------------------------------------------------
 
         city = (
 
@@ -734,215 +849,400 @@ def location():
 
             or address.get("municipality")
 
-            or ""
-
-        )
-
-
-        # ----------------------------------------------------
-        # STATE
-        # ----------------------------------------------------
-
-        state = (
-
-            address.get("state")
+            or address.get("county")
 
             or ""
 
         )
 
 
-        # ----------------------------------------------------
-        # COUNTRY
-        # ----------------------------------------------------
+        state = address.get(
+            "state",
+            ""
+        )
 
-        country = (
 
-            address.get("country")
+        country = address.get(
+            "country",
+            ""
+        )
+
+
+        postcode = address.get(
+            "postcode",
+            ""
+        )
+
+
+        road = address.get(
+            "road",
+            ""
+        )
+
+
+        locality = (
+
+            address.get("suburb")
+
+            or address.get("neighbourhood")
+
+            or address.get("city_district")
 
             or ""
 
         )
 
 
-        # ----------------------------------------------------
-        # POSTCODE
-        # ----------------------------------------------------
+        # -------------------------------------------------
+        # BUILD LOCATION NAME
+        # -------------------------------------------------
 
-        postcode = (
-
-            address.get("postcode")
-
-            or ""
-
-        )
+        name_parts = []
 
 
-        # ----------------------------------------------------
-        # BUILD HUMAN-READABLE LOCATION
-        # ----------------------------------------------------
+        if locality:
 
-        parts = []
-
-
-        for part in [
-
-            road,
-
-            locality,
-
-            city,
-
-            state,
-
-            country
-
-        ]:
-
-            if part and part not in parts:
-
-                parts.append(part)
-
-
-        location_name = ", ".join(
-            parts
-        )
-
-
-        if not location_name:
-
-            location_name = (
-                "Selected Location"
+            name_parts.append(
+                locality
             )
 
 
-        # ----------------------------------------------------
+        if city and city not in name_parts:
+
+            name_parts.append(
+                city
+            )
+
+
+        if state and state not in name_parts:
+
+            name_parts.append(
+                state
+            )
+
+
+        name = ", ".join(
+            name_parts
+        )
+
+
+        if not name:
+
+            name = data.get(
+                "display_name",
+                "Unknown location"
+            )
+
+
+        # -------------------------------------------------
         # RETURN LOCATION
-        # ----------------------------------------------------
+        # -------------------------------------------------
 
         return jsonify({
 
             "success": True,
 
-            "name":
-                location_name,
+            "name": name,
 
-            "display_name":
-                data.get(
-                    "display_name",
-                    location_name
-                ),
+            "display_name": data.get(
+                "display_name",
+                name
+            ),
 
-            "road":
-                road,
+            "road": road,
 
-            "locality":
-                locality,
+            "locality": locality,
 
-            "city":
-                city,
+            "city": city,
 
-            "state":
-                state,
+            "state": state,
 
-            "country":
-                country,
+            "country": country,
 
-            "postcode":
-                postcode,
+            "postcode": postcode,
 
-            "latitude":
-                latitude,
+            "lat": data.get(
+                "lat"
+            ),
 
-            "longitude":
-                longitude
+            "lon": data.get(
+                "lon"
+            )
 
         })
 
 
-    except requests.RequestException as error:
+    # =====================================================
+    # REQUEST ERROR
+    # =====================================================
+
+    except requests.exceptions.RequestException as e:
 
         print(
-            "Location API error:",
-            error
+            "Location request error:",
+            str(e)
         )
 
         return jsonify({
 
             "success": False,
 
-            "error":
-                "Unable to find selected location"
+            "error": (
+                "Unable to find location name"
+            )
 
-        }), 503
+        }), 502
 
 
-# ============================================================
+    # =====================================================
+    # UNKNOWN ERROR
+    # =====================================================
+
+    except Exception as e:
+
+        print(
+            "Unexpected location error:",
+            str(e)
+        )
+
+        return jsonify({
+
+            "success": False,
+
+            "error": "Location lookup failed"
+
+        }), 500
+
+
+# =========================================================
 # HEALTH CHECK
-# ============================================================
+# =========================================================
 
 @app.route("/health")
 def health():
 
     return jsonify({
 
-        "status":
-            "online",
+        "success": True,
 
-        "application":
-            "Smart Weather",
-
-        "version":
-            "2.0",
-
-        "service":
-            "Weather API"
+        "status": "Siddhu Weather is running"
 
     })
 
 
-# ============================================================
+# =========================================================
+# WEATHER CODE MAPPING
+# =========================================================
+
+def get_weather_condition(code):
+
+    weather_map = {
+
+        0: (
+            "Clear Sky",
+            "☀️"
+        ),
+
+        1: (
+            "Mainly Clear",
+            "🌤️"
+        ),
+
+        2: (
+            "Partly Cloudy",
+            "⛅"
+        ),
+
+        3: (
+            "Overcast",
+            "☁️"
+        ),
+
+
+        45: (
+            "Foggy",
+            "🌫️"
+        ),
+
+        48: (
+            "Rime Fog",
+            "🌫️"
+        ),
+
+
+        51: (
+            "Light Drizzle",
+            "🌦️"
+        ),
+
+        53: (
+            "Moderate Drizzle",
+            "🌦️"
+        ),
+
+        55: (
+            "Dense Drizzle",
+            "🌧️"
+        ),
+
+
+        56: (
+            "Light Freezing Drizzle",
+            "🌧️"
+        ),
+
+        57: (
+            "Dense Freezing Drizzle",
+            "🌧️"
+        ),
+
+
+        61: (
+            "Light Rain",
+            "🌦️"
+        ),
+
+        63: (
+            "Moderate Rain",
+            "🌧️"
+        ),
+
+        65: (
+            "Heavy Rain",
+            "🌧️"
+        ),
+
+
+        66: (
+            "Light Freezing Rain",
+            "🌧️"
+        ),
+
+        67: (
+            "Heavy Freezing Rain",
+            "🌧️"
+        ),
+
+
+        71: (
+            "Light Snow",
+            "🌨️"
+        ),
+
+        73: (
+            "Moderate Snow",
+            "🌨️"
+        ),
+
+        75: (
+            "Heavy Snow",
+            "❄️"
+        ),
+
+
+        77: (
+            "Snow Grains",
+            "🌨️"
+        ),
+
+
+        80: (
+            "Light Rain Showers",
+            "🌦️"
+        ),
+
+        81: (
+            "Moderate Rain Showers",
+            "🌧️"
+        ),
+
+        82: (
+            "Violent Rain Showers",
+            "⛈️"
+        ),
+
+
+        85: (
+            "Light Snow Showers",
+            "🌨️"
+        ),
+
+        86: (
+            "Heavy Snow Showers",
+            "❄️"
+        ),
+
+
+        95: (
+            "Thunderstorm",
+            "⛈️"
+        ),
+
+        96: (
+            "Thunderstorm with Hail",
+            "⛈️"
+        ),
+
+        99: (
+            "Thunderstorm with Heavy Hail",
+            "⛈️"
+        )
+
+    }
+
+
+    return weather_map.get(
+
+        code,
+
+        (
+            "Unknown Weather",
+            "🌤️"
+        )
+
+    )
+
+
+# =========================================================
 # ERROR HANDLERS
-# ============================================================
+# =========================================================
 
 @app.errorhandler(404)
-def page_not_found(error):
+def not_found(error):
 
     return jsonify({
 
         "success": False,
 
-        "error":
-            "Page not found"
+        "error": "Page not found"
 
     }), 404
 
 
 @app.errorhandler(500)
-def internal_server_error(error):
+def internal_error(error):
 
     return jsonify({
 
         "success": False,
 
-        "error":
-            "Internal server error"
+        "error": "Internal server error"
 
     }), 500
 
 
-# ============================================================
-# RUN APPLICATION
-# ============================================================
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
 
     app.run(
 
-        debug=True,
-
         host="0.0.0.0",
 
-        port=5000
+        port=5000,
+
+        debug=True
 
     )
