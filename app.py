@@ -21,7 +21,7 @@ cache_lock = Lock()
 HEADERS = {
     "User-Agent": (
         "SiddhuWeather/2.0 "
-        "(https://thallam-siddhu.github.io/siddhu-weather/)"
+        "(https://thallam-siddhu.github.io/smart-weather/)"
     ),
     "Accept": "application/json",
 }
@@ -191,6 +191,11 @@ def build_open_meteo_response(data, lat, lon):
     hourly = data.get("hourly", {})
     hourly_units = data.get("hourly_units", {})
     daily = data.get("daily", {})
+
+    hourly_times = make_iso_times_with_offset(
+        hourly.get("time", []),
+        data.get("utc_offset_seconds", 0)
+    )
     daily_units = data.get("daily_units", {})
 
     code = current.get("weather_code")
@@ -325,7 +330,10 @@ def build_open_meteo_response(data, lat, lon):
         "current": result_current,
 
         "hourly": {
-            "time": hourly.get("time", []),
+            "time": hourly_times,
+            "temperature_2m": hourly.get(
+                "temperature_2m", []
+            ),
             "temperature": hourly.get(
                 "temperature_2m", []
             ),
@@ -336,6 +344,9 @@ def build_open_meteo_response(data, lat, lon):
                 "apparent_temperature", []
             ),
             "precipitation_probability": hourly.get(
+                "precipitation_probability", []
+            ),
+            "rain_probability": hourly.get(
                 "precipitation_probability", []
             ),
             "precipitation": hourly.get(
@@ -757,6 +768,31 @@ def get_array_value(array, index):
         return None
 
     return array[index]
+
+
+def make_iso_times_with_offset(times, utc_offset_seconds):
+    """Make Open-Meteo local times unambiguous for browsers."""
+    if not isinstance(times, list):
+        return []
+
+    try:
+        offset = int(utc_offset_seconds or 0)
+    except (TypeError, ValueError):
+        offset = 0
+
+    sign = "+" if offset >= 0 else "-"
+    offset = abs(offset)
+    hours, remainder = divmod(offset, 3600)
+    minutes = remainder // 60
+    suffix = f"{sign}{hours:02d}:{minutes:02d}"
+
+    result = []
+
+    for value in times:
+        text = str(value)
+        result.append(text if (text.endswith("Z") or len(text) > 19) else f"{text}:00{suffix}")
+
+    return result
 
 
 # ============================================================
