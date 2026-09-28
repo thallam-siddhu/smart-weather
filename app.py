@@ -21,7 +21,7 @@ cache_lock = Lock()
 HEADERS = {
     "User-Agent": (
         "SiddhuWeather/2.0 "
-        "(https://thallam-siddhu.github.io/smart-weather/)"
+        "(https://thallam-siddhu.github.io/siddhu-weather/)"
     ),
     "Accept": "application/json",
 }
@@ -335,7 +335,7 @@ def build_open_meteo_response(data, lat, lon):
             "feels_like": hourly.get(
                 "apparent_temperature", []
             ),
-            "rain_probability": hourly.get(
+            "precipitation_probability": hourly.get(
                 "precipitation_probability", []
             ),
             "precipitation": hourly.get(
@@ -355,7 +355,48 @@ def build_open_meteo_response(data, lat, lon):
             ),
         },
 
-        "daily": daily_result,
+        "daily": {
+            "time": [
+                item["date"]
+                for item in daily_result
+            ],
+            "weather_code": [
+                item["weather_code"]
+                for item in daily_result
+            ],
+            "temperature_2m_max": [
+                item["temperature_max"]
+                for item in daily_result
+            ],
+            "temperature_2m_min": [
+                item["temperature_min"]
+                for item in daily_result
+            ],
+            "precipitation_probability_max": [
+                item["rain_probability"]
+                for item in daily_result
+            ],
+            "precipitation_sum": [
+                item["precipitation"]
+                for item in daily_result
+            ],
+            "rain_sum": [
+                item["rain"]
+                for item in daily_result
+            ],
+            "sunrise": [
+                item["sunrise"]
+                for item in daily_result
+            ],
+            "sunset": [
+                item["sunset"]
+                for item in daily_result
+            ],
+            "uv_index_max": [
+                item["uv_index"]
+                for item in daily_result
+            ]
+        },
 
         "updated_at": time.strftime(
             "%Y-%m-%dT%H:%M:%SZ",
@@ -600,6 +641,53 @@ def get_wttr_weather(lat, lon):
 
             "uv_index": None,
         })
+
+    # Keep the fallback response shape identical to Open-Meteo so
+    # the frontend can render the 7-day forecast from either provider.
+    daily_items = weather.get("daily", [])
+
+    weather["daily"] = {
+        "time": [
+            item["date"]
+            for item in daily_items
+        ],
+        "weather_code": [
+            item["weather_code"]
+            for item in daily_items
+        ],
+        "temperature_2m_max": [
+            item["temperature_max"]
+            for item in daily_items
+        ],
+        "temperature_2m_min": [
+            item["temperature_min"]
+            for item in daily_items
+        ],
+        "precipitation_probability_max": [
+            item["rain_probability"]
+            for item in daily_items
+        ],
+        "precipitation_sum": [
+            item["precipitation"]
+            for item in daily_items
+        ],
+        "rain_sum": [
+            item["rain"]
+            for item in daily_items
+        ],
+        "sunrise": [
+            item["sunrise"]
+            for item in daily_items
+        ],
+        "sunset": [
+            item["sunset"]
+            for item in daily_items
+        ],
+        "uv_index_max": [
+            item["uv_index"]
+            for item in daily_items
+        ]
+    }
 
     return weather
 
