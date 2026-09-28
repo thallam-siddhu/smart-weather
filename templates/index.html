@@ -2550,7 +2550,8 @@
 
         if (
             !hourly ||
-            !Array.isArray(hourly.time)
+            !Array.isArray(hourly.time) ||
+            hourly.time.length === 0
         ) {
             container.innerHTML =
                 `<div class="empty-state">
@@ -2560,12 +2561,11 @@
             return;
         }
 
-        const times =
-            hourly.time;
+        const times = hourly.time;
 
         const temperatures =
-            hourly.temperature_2m ||
             hourly.temperature ||
+            hourly.temperature_2m ||
             [];
 
         const codes =
@@ -2573,12 +2573,12 @@
             hourly.weathercode ||
             [];
 
+        // Flask backend uses rain_probability.
+        // Keep precipitation_probability as a fallback.
         const rain =
+            hourly.rain_probability ||
             hourly.precipitation_probability ||
             [];
-
-        const start =
-            new Date();
 
         let count = 0;
 
@@ -2588,16 +2588,16 @@
             i++
         ) {
 
+            if (!times[i]) {
+                continue;
+            }
+
             const date =
                 new Date(times[i]);
 
             if (
                 Number.isNaN(date.getTime())
             ) {
-                continue;
-            }
-
-            if (date < start) {
                 continue;
             }
 
@@ -2627,11 +2627,15 @@
                 </div>
 
                 <div class="hour-temp">
-                    ${temp !== undefined ? number(temp) + "°" : "--"}
+                    ${temp !== undefined && temp !== null
+                        ? number(temp) + "°"
+                        : "--"}
                 </div>
 
                 <div class="hour-rain">
-                    ${rainValue !== undefined ? number(rainValue) + "%" : "--"}
+                    ${rainValue !== undefined && rainValue !== null
+                        ? number(rainValue) + "%"
+                        : "--"}
                 </div>
             `;
 
@@ -2661,9 +2665,10 @@
 
         container.innerHTML = "";
 
+        // Flask backend returns daily as an array of objects.
         if (
-            !daily ||
-            !Array.isArray(daily.time)
+            !Array.isArray(daily) ||
+            daily.length === 0
         ) {
             container.innerHTML =
                 `<div class="empty-state">
@@ -2673,33 +2678,33 @@
             return;
         }
 
-        const times =
-            daily.time;
+        daily.forEach(
+            (day, index) => {
 
-        const max =
-            daily.temperature_2m_max ||
-            daily.temperature_max ||
-            [];
-
-        const min =
-            daily.temperature_2m_min ||
-            daily.temperature_min ||
-            [];
-
-        const codes =
-            daily.weather_code ||
-            daily.weathercode ||
-            [];
-
-        const rain =
-            daily.precipitation_probability_max ||
-            [];
-
-        times.forEach(
-            (date, index) => {
+                if (!day || !day.date) {
+                    return;
+                }
 
                 const info =
-                    weatherInfo(codes[index]);
+                    weatherInfo(day.weather_code);
+
+                const maxTemp =
+                    day.temperature_max !== undefined &&
+                    day.temperature_max !== null
+                        ? number(day.temperature_max) + "°"
+                        : "--";
+
+                const minTemp =
+                    day.temperature_min !== undefined &&
+                    day.temperature_min !== null
+                        ? " / " + number(day.temperature_min) + "°"
+                        : "";
+
+                const rainValue =
+                    day.rain_probability !== undefined &&
+                    day.rain_probability !== null
+                        ? "💧 " + number(day.rain_probability) + "%"
+                        : "--";
 
                 const card =
                     document.createElement("div");
@@ -2710,7 +2715,7 @@
                 card.innerHTML = `
 
                     <div class="forecast-day">
-                        ${formatDay(date, index)}
+                        ${formatDay(day.date, index)}
                     </div>
 
                     <div class="forecast-icon">
@@ -2718,31 +2723,14 @@
                     </div>
 
                     <div class="forecast-temp">
-
-                        ${max[index] !== undefined
-                            ? number(max[index]) + "°"
-                            : "--"}
-
+                        ${maxTemp}
                         <span class="forecast-low">
-
-                            ${
-                                min[index] !== undefined
-                                    ? " / " + number(min[index]) + "°"
-                                    : ""
-                            }
-
+                            ${minTemp}
                         </span>
-
                     </div>
 
                     <div class="forecast-rain">
-
-                        ${
-                            rain[index] !== undefined
-                                ? "💧 " + number(rain[index]) + "%"
-                                : "--"
-                        }
-
+                        ${rainValue}
                     </div>
                 `;
 
